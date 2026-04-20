@@ -15,13 +15,28 @@ import {
   Building2,
   Table,
   BarChart3,
+  Table,
+  BarChart3,
   Loader2,
   Trash2,
   Search,
   ArrowUpRight,
   ArrowDownLeft,
-  DollarSign
+  DollarSign,
+  FileDown
 } from 'lucide-react';
+
+const exportToCSV = (data, fileName) => {
+  const headers = Object.keys(data[0]).join(',');
+  const rows = data.map(obj => Object.values(obj).join(',')).join('\n');
+  const csvContent = "data:text/csv;charset=utf-8," + headers + "\n" + rows;
+  const encodedUri = encodeURI(csvContent);
+  const link = document.createElement("a");
+  link.setAttribute("href", encodedUri);
+  link.setAttribute("download", `${fileName}.csv`);
+  document.body.appendChild(link);
+  link.click();
+};
 
 const AccountantDashboard = ({ isAdminView = false }) => {
   const [activeTab, setActiveTab] = useState('transactions');
@@ -173,7 +188,12 @@ const AccountantDashboard = ({ isAdminView = false }) => {
               <div className="glass-card" style={{ padding: '32px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '32px', alignItems: 'center' }}>
                   <h3>Financial Audit Trail</h3>
-                  <button onClick={() => setShowForm('txn')} className="btn-primary" style={{ width: 'auto', background: 'var(--primary)', color: 'black', padding: '10px 24px' }}>+ New Voucher</button>
+                  <div style={{ display: 'flex', gap: '12px' }}>
+                    <button onClick={() => exportToCSV(filteredTxns, 'transactions_ledger')} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 20px', background: '#f8f9fa', border: '1px solid #eee', borderRadius: '15px', color: 'black', fontSize: '0.85rem', fontWeight: '700', cursor: 'pointer' }}>
+                       <FileDown size={18} /> Export CSV
+                    </button>
+                    <button onClick={() => setShowForm('txn')} className="btn-primary" style={{ width: 'auto', background: 'var(--primary)', color: 'black', padding: '10px 24px' }}>+ New Voucher</button>
+                  </div>
                 </div>
                 <table style={{ width: '100%' }}>
                   <thead>

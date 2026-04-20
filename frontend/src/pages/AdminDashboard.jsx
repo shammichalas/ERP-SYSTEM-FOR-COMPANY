@@ -308,17 +308,26 @@ const AdminDashboard = () => {
                          <h3 style={{ margin: 0 }}>Immutable Audit Log</h3>
                       </div>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '0' }}>
-                        {auditLogs.slice(0, 8).map((log, i) => (
-                          <div key={i} style={{ display: 'flex', gap: '20px', padding: '20px 32px', borderBottom: i === 7 ? 'none' : '1px solid #f5f5f5', transition: '0.3s' }}>
+                        {auditLogs.slice(0, 10).map((log, i) => (
+                          <div key={i} style={{ display: 'flex', gap: '20px', padding: '20px 32px', borderBottom: i === 9 ? 'none' : '1px solid #f5f5f5', transition: '0.3s' }}>
                              <div style={{ marginTop: '5px' }}>
-                                <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: log.action === 'DELETE' ? '#ef4444' : 'var(--primary)' }}></div>
+                                <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: log.action === 'DELETE' ? '#ef4444' : log.action === 'UPDATE' ? '#f59e0b' : 'var(--primary)' }}></div>
                              </div>
                              <div style={{ flex: 1 }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-                                   <span style={{ fontWeight: '700', fontSize: '0.85rem' }}>{log.action}</span>
-                                   <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{new Date(log.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
+                                   <span style={{ fontWeight: '700', fontSize: '0.85rem' }}>{log.action} • {log.target}</span>
+                                   <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{new Date(log.timestamp).toLocaleString([], {hour: '2-digit', minute:'2-digit', month: 'short', day: 'numeric'})}</span>
                                 </div>
-                                <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: 0 }}>{log.performed_by} modified {log.target}</p>
+                                <p style={{ fontSize: '0.8rem', color: 'var(--text-primary)', margin: '4px 0', opacity: 0.8 }}>
+                                   <b>{log.performed_by}</b> executed <i>{log.action}</i> on {log.target_id || log.target}
+                                </p>
+                                {log.details?.changes && (
+                                   <div style={{ fontSize: '0.7rem', background: '#f8f9fa', padding: '8px', borderRadius: '8px', marginTop: '8px' }}>
+                                      {Object.entries(log.details.changes).map(([k, v]) => (
+                                         <div key={k}>Δ {k.toUpperCase()}: <span style={{ color: '#ef4444' }}>{v.old}</span> → <span style={{ color: '#10b981' }}>{v.new}</span></div>
+                                      ))}
+                                   </div>
+                                )}
                              </div>
                           </div>
                         ))}

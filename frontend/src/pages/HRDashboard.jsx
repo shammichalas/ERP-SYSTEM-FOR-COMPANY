@@ -15,13 +15,29 @@ import {
   Download,
   Search,
   Filter,
-  UserCheck
+  UserCheck,
+  FileSpreadsheet,
+  UploadCloud
 } from 'lucide-react';
+
+const exportToCSV = (data, fileName) => {
+    if (!data || !data.length) return;
+    const headers = Object.keys(data[0]).join(',');
+    const rows = data.map(obj => Object.values(obj).join(',')).join('\n');
+    const csvContent = "data:text/csv;charset=utf-8," + headers + "\n" + rows;
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", `${fileName}.csv`);
+    document.body.appendChild(link);
+    link.click();
+};
 
 const HRDashboard = ({ isAdminView = false }) => {
   const [activeTab, setActiveTab] = useState('directory');
   const [employees, setEmployees] = useState([]);
   const [leaves, setLeaves] = useState([]);
+  const [candidates, setCandidates] = useState([]);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState('');
   const [filterDept, setFilterDept] = useState('All');
@@ -47,6 +63,11 @@ const HRDashboard = ({ isAdminView = false }) => {
           headers: { Authorization: `Bearer ${token}` }
         });
         setLeaves(res.data);
+      } else if (activeTab === 'recruitment') {
+        const res = await axios.get(`${API_BASE}/recruitment/candidates`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        setCandidates(res.data);
       }
     } catch (err) { console.error(err); }
     finally { setLoading(false); }
@@ -103,6 +124,7 @@ const HRDashboard = ({ isAdminView = false }) => {
             <p style={{ color: 'var(--text-muted)', fontSize: '0.75rem', fontWeight: '600', padding: '0 16px 12px', letterSpacing: '0.05em' }}>PEOPLE OPS</p>
             <TabButton value="directory" label="Employee Roster" icon={Users} />
             <TabButton value="add" label="New Onboarding" icon={Plus} />
+            <TabButton value="recruitment" label="Hiring Pipeline" icon={UserCheck} />
             <TabButton value="leaves" label="Absence Control" icon={Calendar} />
             <TabButton value="payroll" label="Salary Engine" icon={CreditCard} />
           </div>
@@ -118,6 +140,7 @@ const HRDashboard = ({ isAdminView = false }) => {
            <div style={{ display: 'flex', gap: '15px', marginBottom: '32px', borderBottom: '1px solid var(--border)', paddingBottom: '20px' }}>
               <button onClick={() => setActiveTab('directory')} style={{ background: activeTab === 'directory' ? 'var(--primary)' : 'transparent', color: 'black', border: 'none', padding: '10px 20px', borderRadius: '15px', cursor: 'pointer', fontWeight: '700' }}>Roster</button>
               <button onClick={() => setActiveTab('add')} style={{ background: activeTab === 'add' ? 'var(--primary)' : 'transparent', color: 'black', border: 'none', padding: '10px 20px', borderRadius: '15px', cursor: 'pointer', fontWeight: '700' }}>Onboard</button>
+              <button onClick={() => setActiveTab('recruitment')} style={{ background: activeTab === 'recruitment' ? 'var(--primary)' : 'transparent', color: 'black', border: 'none', padding: '10px 20px', borderRadius: '15px', cursor: 'pointer', fontWeight: '700' }}>Recruitment</button>
               <button onClick={() => setActiveTab('leaves')} style={{ background: activeTab === 'leaves' ? 'var(--primary)' : 'transparent', color: 'black', border: 'none', padding: '10px 20px', borderRadius: '15px', cursor: 'pointer', fontWeight: '700' }}>Leaves</button>
               <button onClick={() => setActiveTab('payroll')} style={{ background: activeTab === 'payroll' ? 'var(--primary)' : 'transparent', color: 'black', border: 'none', padding: '10px 20px', borderRadius: '15px', cursor: 'pointer', fontWeight: '700' }}>Payroll</button>
            </div>
@@ -129,6 +152,12 @@ const HRDashboard = ({ isAdminView = false }) => {
           </div>
           {activeTab === 'directory' && (
              <div style={{ display: 'flex', gap: '12px' }}>
+                <button 
+                   onClick={() => exportToCSV(filteredEmps, 'staff_roster')}
+                   style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 20px', background: '#f8f9fa', border: '1px solid #eee', borderRadius: '15px', fontWeight: '700', fontSize: '0.85rem', cursor: 'pointer' }}
+                >
+                   <FileSpreadsheet size={18} /> Export Staff
+                </button>
                 <div className="search-box" style={{ width: '300px' }}>
                    <Search size={18} color="var(--text-muted)" />
                    <input type="text" placeholder="Search by name or ID..." value={search} onChange={e => setSearch(e.target.value)} style={{ border: 'none', background: 'transparent' }} />
@@ -188,7 +217,8 @@ const HRDashboard = ({ isAdminView = false }) => {
         
         {activeTab === 'leaves' && (
            <div className="glass-card animate-fade-in" style={{ padding: '32px' }}>
-           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <h3>Time-Off Workflow</h3>
+              <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: '20px' }}>
             <thead>
               <tr style={{ borderBottom: '1px solid var(--border)', textAlign: 'left' }}>
                 <th style={{ padding: '16px', color: 'var(--text-muted)' }}>Employee ID</th>
@@ -240,6 +270,65 @@ const HRDashboard = ({ isAdminView = false }) => {
             </tbody>
           </table>
         </div>
+        )}
+
+        {activeTab === 'recruitment' && (
+           <div className="glass-card animate-fade-in" style={{ padding: '32px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '30px', alignItems: 'center' }}>
+                 <h3>Talent Pipeline (Hiring Workflow)</h3>
+                 <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>APPLIED → INTERVIEW → SELECTED</span>
+              </div>
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr style={{ borderBottom: '1px solid var(--border)', textAlign: 'left' }}>
+                    <th style={{ padding: '16px' }}>Candidate</th>
+                    <th style={{ padding: '16px' }}>Position</th>
+                    <th style={{ padding: '16px' }}>Current State</th>
+                    <th style={{ padding: '16px', textAlign: 'center' }}>Advance Workflow</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {candidates.map(c => (
+                    <tr key={c._id} style={{ borderBottom: '1px solid var(--border)' }}>
+                      <td style={{ padding: '16px' }}>
+                         <div style={{ fontWeight: '700' }}>{c.full_name}</div>
+                         <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{c.email}</div>
+                      </td>
+                      <td style={{ padding: '16px' }}><span className="badge">{c.position}</span></td>
+                      <td style={{ padding: '16px' }}>
+                         <span style={{ 
+                            padding: '6px 12px', borderRadius: '20px', fontSize: '0.7rem', fontWeight: '900',
+                            background: c.status === 'Selected' ? '#dcfce7' : c.status === 'Rejected' ? '#fee2e2' : '#fef9c3',
+                            color: c.status === 'Selected' ? '#166534' : c.status === 'Rejected' ? '#991b1b' : '#854d0e'
+                         }}>{c.status.toUpperCase()}</span>
+                      </td>
+                      <td style={{ padding: '16px' }}>
+                         <div style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
+                            {c.status === 'Applied' && (
+                               <button onClick={async () => {
+                                  await axios.patch(`${API_BASE}/recruitment/candidates/${c._id}/status?status=Interview`, {}, { headers: { Authorization: `Bearer ${token}` }});
+                                  fetchData();
+                               }} className="btn-primary" style={{ fontSize: '0.7rem', padding: '8px 12px', background: 'black', color: 'white' }}>Schedule Interview</button>
+                            )}
+                            {c.status === 'Interview' && (
+                               <button onClick={async () => {
+                                  await axios.patch(`${API_BASE}/recruitment/candidates/${c._id}/status?status=Selected`, {}, { headers: { Authorization: `Bearer ${token}` }});
+                                  fetchData();
+                               }} className="btn-primary" style={{ fontSize: '0.7rem', padding: '8px 12px', background: 'var(--primary)', color: 'black' }}>Confirm Selection</button>
+                            )}
+                            {(c.status === 'Applied' || c.status === 'Interview') && (
+                               <button onClick={async () => {
+                                  await axios.patch(`${API_BASE}/recruitment/candidates/${c._id}/status?status=Rejected`, {}, { headers: { Authorization: `Bearer ${token}` }});
+                                  fetchData();
+                               }} style={{ padding: '8px', background: '#fee2e2', border: 'none', borderRadius: '8px', cursor: 'pointer' }}><Trash2 size={16} color="#991b1b" /></button>
+                            )}
+                         </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+           </div>
         )}
 
         {activeTab === 'payroll' && <PayrollSystem token={token} API={API_BASE} />}
@@ -299,6 +388,14 @@ const AddEmployeeForm = ({ setTab, token, API }) => {
         <div style={{ gridColumn: 'span 2' }}>
           <label style={{ display: 'block', marginBottom: '8px', fontSize: '0.8rem', fontWeight: 'bold' }}>OFFICIAL EMAIL</label>
           <input required type="email" placeholder="john@company.com" value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} />
+        </div>
+        <div style={{ gridColumn: 'span 2' }}>
+           <label style={{ display: 'block', marginBottom: '8px', fontSize: '0.8rem', fontWeight: 'bold' }}>ID VERIFICATION (IDENTITY PROOF)</label>
+           <div style={{ border: '2px dashed #eee', padding: '20px', borderRadius: '15px', textAlign: 'center', cursor: 'pointer' }}>
+              <UploadCloud size={24} style={{ marginBottom: '8px', color: 'var(--text-muted)' }} />
+              <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Click to upload JPG, PNG or PDF (Max 5MB)</div>
+              <input type="file" style={{ display: 'none' }} />
+           </div>
         </div>
         <div style={{ gridColumn: 'span 2', marginTop: '10px' }}>
           <button className="btn-primary" type="submit" disabled={loading} style={{ background: 'black', color: 'white' }}>

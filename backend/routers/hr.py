@@ -44,6 +44,23 @@ class LeaveResponse(LeaveRequest):
     class Config:
         populate_by_name = True
 
+class CandidateBase(BaseModel):
+    full_name: str
+    email: EmailStr
+    phone: str
+    position: str
+    status: str = "Applied" # Applied, Interview, Selected, Rejected
+    resume_url: Optional[str] = None
+
+class CandidateCreate(CandidateBase):
+    pass
+
+class CandidateResponse(CandidateBase):
+    id: str = Field(alias="_id")
+    applied_on: str
+    class Config:
+        populate_by_name = True
+
 # 1. Employee Management
 @router.post("/employees", response_model=EmployeeResponse)
 async def add_employee(data: EmployeeCreate, admin: dict = Depends(role_required([UserRole.HR, UserRole.ADMIN]))):
@@ -60,6 +77,20 @@ async def add_employee(data: EmployeeCreate, admin: dict = Depends(role_required
     created = await db.employees.find_one({"_id": result.inserted_id})
     created["_id"] = str(created["_id"])
     return created
+
+@router.patch("/employees/{employee_id}")
+async def update_employee(employee_id: str, data: dict, admin: dict = Depends(role_required([UserRole.HR, UserRole.ADMIN]))):
+    db = get_database()
+    old_data = await db.employees.find_one({"employee_id": employee_id})
+    if not old_data: raise HTTPException(status_code=404, detail="Employee not found")
+    
+    await db.employees.update_one({"employee_id": employee_id}, {"$set": data})
+    
+    # ADVANCED AUDITING: Track exactly what changed
+    changes = {k: {"old": old_data.get(k), "new": v} for k, v in data.items() if old_data.get(k) != v}
+    await log_event("UPDATE", "Employee", admin["email"], employee_id, {"changes": changes})
+    
+    return {"message": "Profile updated and change-log recorded"}
 
 @router.get("/employees", response_model=List[EmployeeResponse])
 async def get_employees(admin: dict = Depends(role_required([UserRole.HR, UserRole.ADMIN]))):
@@ -169,3 +200,47 @@ async def get_employee_payslips(employee_id: str, user: dict = Depends(get_curre
         p["_id"] = str(p["_id"])
         payslips.append(p)
     return payslips
+
+# 4. Recruitment Workflow (APPLIED -> INTERVIEW -> SELECTED)
+@router.post("/recruitment/candidates", response_model=CandidateResponse)
+async def apply_job(data: CandidateCreate):
+    db = get_database()
+    can_data = data.dict()
+    can_data["applied_on"] = datetime.now().isoformat()
+    result = await db.candidates.insert_one(can_data)
+    
+    # Non-admin action log
+    await log_event("APPLIED", "Candidate", can_data["email"], str(result.inserted_id))
+    
+    created = await db.candidates.find_one({"_id": result.inserted_id})
+    created["_id"] = str(created["_id"])
+    return created
+
+@router.get("/recruitment/candidates", response_model=List[CandidateResponse])
+async def get_candidates(admin: dict = Depends(role_required([UserRole.HR, UserRole.ADMIN]))):
+    db = get_database()
+    cursor = db.candidates.find()
+    candidates = []
+    async for c in cursor:
+        c["_id"] = str(c["_id"])
+        candidates.append(c)
+    return candidates
+
+@router.patch("/recruitment/candidates/{candidate_id}/status")
+async def update_candidate_status(candidate_id: str, status: str, admin: dict = Depends(role_required([UserRole.HR, UserRole.ADMIN]))):
+    db = get_database()
+    valid_statuses = ["Applied", "Interview", "Selected", "Rejected"]
+    if status not in valid_statuses:
+        raise HTTPException(status_code=400, detail="Invalid recruitment status")
+
+    result = await db.candidates.update_one(
+        {"_id": ObjectId(candidate_id)},
+        {"$set": {"status": status}}
+    )
+    if result.modified_count == 0:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+    
+    # Audit log
+    await log_event("UPDATE", "Candidate", admin["email"], candidate_id, {"new_status": status})
+    
+    return {"message": f"Recruitment pipeline updated to: {status}"}
