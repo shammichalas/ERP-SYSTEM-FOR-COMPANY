@@ -12,7 +12,10 @@ import {
   CheckCircle2, 
   XCircle,
   Loader2,
-  Download
+  Download,
+  Search,
+  Filter,
+  UserCheck
 } from 'lucide-react';
 
 const HRDashboard = ({ isAdminView = false }) => {
@@ -20,9 +23,10 @@ const HRDashboard = ({ isAdminView = false }) => {
   const [employees, setEmployees] = useState([]);
   const [leaves, setLeaves] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [msg, setMsg] = useState({ text: '', type: '' });
+  const [search, setSearch] = useState('');
+  const [filterDept, setFilterDept] = useState('All');
+  
   const navigate = useNavigate();
-
   const API_BASE = 'http://localhost:8005/hr';
   const token = localStorage.getItem('token');
 
@@ -31,6 +35,7 @@ const HRDashboard = ({ isAdminView = false }) => {
   }, [activeTab]);
 
   const fetchData = async () => {
+    setLoading(true);
     try {
       if (activeTab === 'directory') {
         const res = await axios.get(`${API_BASE}/employees`, {
@@ -43,9 +48,8 @@ const HRDashboard = ({ isAdminView = false }) => {
         });
         setLeaves(res.data);
       }
-    } catch (err) {
-      console.error(err);
-    }
+    } catch (err) { console.error(err); }
+    finally { setLoading(false); }
   };
 
   const handleLogout = () => {
@@ -78,26 +82,32 @@ const HRDashboard = ({ isAdminView = false }) => {
     </button>
   );
 
+  const filteredEmps = employees.filter(e => {
+    const matchSearch = e.full_name.toLowerCase().includes(search.toLowerCase()) || e.employee_id.toLowerCase().includes(search.toLowerCase());
+    const matchDept = filterDept === 'All' || e.department === filterDept;
+    return matchSearch && matchDept;
+  });
+
   return (
     <div className={isAdminView ? "" : "dashboard-container"}>
       {!isAdminView && (
         <div className="sidebar">
           <div style={{ marginBottom: '40px', display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <div style={{ background: 'var(--accent)', padding: '8px', borderRadius: '8px' }}>
-              <Briefcase size={24} color="white" />
+            <div style={{ background: 'var(--primary)', padding: '8px', borderRadius: '8px' }}>
+              <Briefcase size={24} color="black" />
             </div>
-            <h2 style={{ fontSize: '1.25rem' }}>HR Portal</h2>
+            <h2 style={{ fontSize: '1.25rem' }}>Core Staffing</h2>
           </div>
           
           <div style={{ flex: 1 }}>
-            <p style={{ color: 'var(--text-muted)', fontSize: '0.75rem', fontWeight: '600', padding: '0 16px 12px', letterSpacing: '0.05em' }}>MAIN MENU</p>
-            <TabButton value="directory" label="Employee Directory" icon={Users} />
-            <TabButton value="add" label="Add Employee" icon={Plus} />
-            <TabButton value="leaves" label="Leave Management" icon={Calendar} />
-            <TabButton value="payroll" label="Payroll System" icon={CreditCard} />
+            <p style={{ color: 'var(--text-muted)', fontSize: '0.75rem', fontWeight: '600', padding: '0 16px 12px', letterSpacing: '0.05em' }}>PEOPLE OPS</p>
+            <TabButton value="directory" label="Employee Roster" icon={Users} />
+            <TabButton value="add" label="New Onboarding" icon={Plus} />
+            <TabButton value="leaves" label="Absence Control" icon={Calendar} />
+            <TabButton value="payroll" label="Salary Engine" icon={CreditCard} />
           </div>
 
-          <button onClick={handleLogout} style={{ background: 'transparent', border: 'none', color: '#ef4444', display: 'flex', alignItems: 'center', gap: '12px', padding: '12px', cursor: 'pointer', fontWeight: '500' }}>
+          <button onClick={handleLogout} style={{ background: 'transparent', border: 'none', color: '#ef4444', display: 'flex', alignItems: 'center', gap: '12px', padding: '12px', cursor: 'pointer', fontWeight: '600' }}>
             <LogOut size={20} /> Sign Out
           </button>
         </div>
@@ -106,38 +116,66 @@ const HRDashboard = ({ isAdminView = false }) => {
       <div className={isAdminView ? "" : "main-content"}>
         {isAdminView && (
            <div style={{ display: 'flex', gap: '15px', marginBottom: '32px', borderBottom: '1px solid var(--border)', paddingBottom: '20px' }}>
-              <button onClick={() => setActiveTab('directory')} style={{ background: activeTab === 'directory' ? 'var(--primary)' : 'transparent', color: 'black', border: 'none', padding: '10px 20px', borderRadius: '15px', cursor: 'pointer', fontWeight: '700' }}>Directory</button>
-              <button onClick={() => setActiveTab('add')} style={{ background: activeTab === 'add' ? 'var(--primary)' : 'transparent', color: 'black', border: 'none', padding: '10px 20px', borderRadius: '15px', cursor: 'pointer', fontWeight: '700' }}>Add Employee</button>
+              <button onClick={() => setActiveTab('directory')} style={{ background: activeTab === 'directory' ? 'var(--primary)' : 'transparent', color: 'black', border: 'none', padding: '10px 20px', borderRadius: '15px', cursor: 'pointer', fontWeight: '700' }}>Roster</button>
+              <button onClick={() => setActiveTab('add')} style={{ background: activeTab === 'add' ? 'var(--primary)' : 'transparent', color: 'black', border: 'none', padding: '10px 20px', borderRadius: '15px', cursor: 'pointer', fontWeight: '700' }}>Onboard</button>
               <button onClick={() => setActiveTab('leaves')} style={{ background: activeTab === 'leaves' ? 'var(--primary)' : 'transparent', color: 'black', border: 'none', padding: '10px 20px', borderRadius: '15px', cursor: 'pointer', fontWeight: '700' }}>Leaves</button>
               <button onClick={() => setActiveTab('payroll')} style={{ background: activeTab === 'payroll' ? 'var(--primary)' : 'transparent', color: 'black', border: 'none', padding: '10px 20px', borderRadius: '15px', cursor: 'pointer', fontWeight: '700' }}>Payroll</button>
            </div>
         )}
-        <header style={{ marginBottom: '40px' }}>
-          <h1>{activeTab.charAt(0).toUpperCase() + activeTab.slice(1).replace('-', ' ')}</h1>
-          <p style={{ color: 'var(--text-muted)' }}>Manage your workspace and team efficiently.</p>
+        <header style={{ marginBottom: '40px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
+          <div>
+             <h1>{activeTab.charAt(0).toUpperCase() + activeTab.slice(1).replace('-', ' ')} Control</h1>
+             <p style={{ color: 'var(--text-muted)' }}>Enterprise human resource and lifecycle management.</p>
+          </div>
+          {activeTab === 'directory' && (
+             <div style={{ display: 'flex', gap: '12px' }}>
+                <div className="search-box" style={{ width: '300px' }}>
+                   <Search size={18} color="var(--text-muted)" />
+                   <input type="text" placeholder="Search by name or ID..." value={search} onChange={e => setSearch(e.target.value)} style={{ border: 'none', background: 'transparent' }} />
+                </div>
+                <select value={filterDept} onChange={e => setFilterDept(e.target.value)} style={{ width: '150px', background: 'white' }}>
+                   <option value="All">All Departments</option>
+                   <option>Engineering</option>
+                   <option>HR</option>
+                   <option>Sales</option>
+                   <option>Finance</option>
+                </select>
+             </div>
+          )}
         </header>
 
         {activeTab === 'directory' && (
-          <div className="glass-card animate-fade-in" style={{ padding: '24px' }}>
+          <div className="glass-card animate-fade-in" style={{ padding: '32px' }}>
              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
                 <tr style={{ borderBottom: '1px solid var(--border)', textAlign: 'left' }}>
-                  <th style={{ padding: '12px', color: 'var(--text-muted)' }}>Employee ID</th>
-                  <th style={{ padding: '12px', color: 'var(--text-muted)' }}>Name</th>
-                  <th style={{ padding: '12px', color: 'var(--text-muted)' }}>Dept / Role</th>
-                  <th style={{ padding: '12px', color: 'var(--text-muted)' }}>Salary</th>
-                  <th style={{ padding: '12px', color: 'var(--text-muted)' }}>Status</th>
+                  <th style={{ padding: '16px', color: 'var(--text-muted)' }}>Staff Member</th>
+                  <th style={{ padding: '16px', color: 'var(--text-muted)' }}>Department</th>
+                  <th style={{ padding: '16px', color: 'var(--text-muted)' }}>Base Salary</th>
+                  <th style={{ padding: '16px', color: 'var(--text-muted)' }}>Lifecycle</th>
+                  <th style={{ padding: '16px', color: 'var(--text-muted)' }}>Status</th>
                 </tr>
               </thead>
               <tbody>
-                {employees.map(emp => (
+                {filteredEmps.map(emp => (
                   <tr key={emp.employee_id} style={{ borderBottom: '1px solid var(--border)' }}>
-                    <td style={{ padding: '12px', fontWeight: '600' }}>{emp.employee_id}</td>
-                    <td style={{ padding: '12px' }}>{emp.full_name}<br/><span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{emp.email}</span></td>
-                    <td style={{ padding: '12px' }}>{emp.department}<br/><span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{emp.designation}</span></td>
-                    <td style={{ padding: '12px' }}>${emp.salary.toLocaleString()}</td>
-                    <td style={{ padding: '12px' }}>
-                      <span style={{ padding: '4px 8px', borderRadius: '4px', fontSize: '0.75rem', background: 'rgba(16, 185, 129, 0.1)', color: '#10b981' }}>{emp.status}</span>
+                    <td style={{ padding: '16px' }}>
+                       <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                          <div style={{ width: '45px', height: '45px', borderRadius: '12px', background: 'var(--bg-main)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold' }}>{emp.full_name.charAt(0)}</div>
+                          <div>
+                             <div style={{ fontWeight: '700' }}>{emp.full_name}</div>
+                             <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{emp.employee_id} • {emp.email}</div>
+                          </div>
+                       </div>
+                    </td>
+                    <td style={{ padding: '16px' }}>
+                       <div style={{ fontWeight: '600' }}>{emp.department}</div>
+                       <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{emp.designation}</div>
+                    </td>
+                    <td style={{ padding: '16px', fontWeight: '800' }}>${emp.salary.toLocaleString()}</td>
+                    <td style={{ padding: '16px', fontSize: '0.85rem' }}>{new Date(emp.joining_date).toLocaleDateString()}</td>
+                    <td style={{ padding: '16px' }}>
+                      <span style={{ padding: '6px 12px', borderRadius: '20px', fontSize: '0.75rem', fontWeight: '700', background: 'rgba(16, 185, 129, 0.1)', color: '#10b981' }}>{emp.status.toUpperCase()}</span>
                     </td>
                   </tr>
                 ))}
@@ -149,47 +187,51 @@ const HRDashboard = ({ isAdminView = false }) => {
         {activeTab === 'add' && <AddEmployeeForm setTab={setActiveTab} token={token} API={API_BASE} />}
         
         {activeTab === 'leaves' && (
-           <div className="glass-card animate-fade-in" style={{ padding: '24px' }}>
+           <div className="glass-card animate-fade-in" style={{ padding: '32px' }}>
            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr style={{ borderBottom: '1px solid var(--border)', textAlign: 'left' }}>
-                <th style={{ padding: '12px', color: 'var(--text-muted)' }}>Employee</th>
-                <th style={{ padding: '12px', color: 'var(--text-muted)' }}>Type</th>
-                <th style={{ padding: '12px', color: 'var(--text-muted)' }}>Duration</th>
-                <th style={{ padding: '12px', color: 'var(--text-muted)' }}>Reason</th>
-                <th style={{ padding: '12px', color: 'var(--text-muted)' }}>Status</th>
-                <th style={{ padding: '12px', color: 'var(--text-muted)' }}>Action</th>
+                <th style={{ padding: '16px', color: 'var(--text-muted)' }}>Employee ID</th>
+                <th style={{ padding: '16px', color: 'var(--text-muted)' }}>Type</th>
+                <th style={{ padding: '16px', color: 'var(--text-muted)' }}>Timeline</th>
+                <th style={{ padding: '16px', color: 'var(--text-muted)' }}>Justification</th>
+                <th style={{ padding: '16px', color: 'var(--text-muted)' }}>Status</th>
+                <th style={{ padding: '16px', textAlign: 'center' }}>Workflow</th>
               </tr>
             </thead>
             <tbody>
               {leaves.map(l => (
                 <tr key={l._id} style={{ borderBottom: '1px solid var(--border)' }}>
-                  <td style={{ padding: '12px' }}>{l.employee_id}</td>
-                  <td style={{ padding: '12px' }}>{l.type}</td>
-                  <td style={{ padding: '12px' }}>{l.start_date} to {l.end_date}</td>
-                  <td style={{ padding: '12px' }}>{l.reason}</td>
-                  <td style={{ padding: '12px' }}>
+                  <td style={{ padding: '16px', fontWeight: 'bold' }}>{l.employee_id}</td>
+                  <td style={{ padding: '16px' }}><span className="badge">{l.type}</span></td>
+                  <td style={{ padding: '16px' }}>
+                     <div style={{ fontSize: '0.9rem' }}>{l.start_date} → {l.end_date}</div>
+                     <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Applied: {new Date(l.applied_on).toLocaleDateString()}</div>
+                  </td>
+                  <td style={{ padding: '16px', maxWidth: '200px', fontSize: '0.85rem' }}>{l.reason}</td>
+                  <td style={{ padding: '16px' }}>
                     <span style={{ 
-                      padding: '4px 8px', 
-                      borderRadius: '4px', 
+                      padding: '6px 12px', 
+                      borderRadius: '20px', 
                       fontSize: '0.75rem', 
+                      fontWeight: '800',
                       background: l.status === 'Approved' ? 'rgba(16, 185, 129, 0.1)' : l.status === 'Pending' ? 'rgba(245, 158, 11, 0.1)' : 'rgba(239, 68, 68, 0.1)',
                       color: l.status === 'Approved' ? '#10b981' : l.status === 'Pending' ? '#f59e0b' : '#ef4444'
                     }}>
-                      {l.status}
+                      {l.status.toUpperCase()}
                     </span>
                   </td>
-                  <td style={{ padding: '12px' }}>
+                  <td style={{ padding: '16px' }}>
                     {l.status === 'Pending' && (
-                      <div style={{ display: 'flex', gap: '8px' }}>
+                      <div style={{ display: 'flex', gap: '10px', justifyContent: 'center' }}>
                         <button onClick={async () => {
                            await axios.patch(`${API_BASE}/leaves/${l._id}?status=Approved`, {}, { headers: { Authorization: `Bearer ${token}` }});
                            fetchData();
-                        }} style={{ padding: '4px', background: 'rgba(16, 185, 129, 0.1)', border: 'none', borderRadius: '4px', color: '#10b981', cursor: 'pointer' }}><CheckCircle2 size={16}/></button>
+                        }} style={{ width: '36px', height: '36px', background: '#dcfce7', border: 'none', borderRadius: '10px', color: '#166534', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><CheckCircle2 size={18}/></button>
                         <button onClick={async () => {
                            await axios.patch(`${API_BASE}/leaves/${l._id}?status=Rejected`, {}, { headers: { Authorization: `Bearer ${token}` }});
                            fetchData();
-                        }} style={{ padding: '4px', background: 'rgba(239, 68, 68, 0.1)', border: 'none', borderRadius: '4px', color: '#ef4444', cursor: 'pointer' }}><XCircle size={16}/></button>
+                        }} style={{ width: '36px', height: '36px', background: '#fee2e2', border: 'none', borderRadius: '10px', color: '#991b1b', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><XCircle size={18}/></button>
                       </div>
                     )}
                   </td>
@@ -226,18 +268,19 @@ const AddEmployeeForm = ({ setTab, token, API }) => {
   };
 
   return (
-    <div className="glass-card animate-fade-in" style={{ padding: '32px', maxWidth: '600px' }}>
-      <form onSubmit={handleSubmit} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+    <div className="glass-card animate-fade-in" style={{ padding: '40px', maxWidth: '800px' }}>
+      <h3 style={{ marginBottom: '32px' }}>Strategic Onboarding</h3>
+      <form onSubmit={handleSubmit} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '30px' }}>
         <div style={{ gridColumn: 'span 2' }}>
-          <label style={{ display: 'block', marginBottom: '8px', fontSize: '0.9rem', color: 'var(--text-muted)' }}>Full Name</label>
-          <input required type="text" value={formData.full_name} onChange={e => setFormData({...formData, full_name: e.target.value})} />
+          <label style={{ display: 'block', marginBottom: '8px', fontSize: '0.8rem', fontWeight: 'bold' }}>FULL LEGAL NAME</label>
+          <input required type="text" placeholder="e.g., Jonathan Doe" value={formData.full_name} onChange={e => setFormData({...formData, full_name: e.target.value})} />
         </div>
         <div>
-          <label style={{ display: 'block', marginBottom: '8px', fontSize: '0.9rem', color: 'var(--text-muted)' }}>Employee ID</label>
-          <input required type="text" placeholder="EMP001" value={formData.employee_id} onChange={e => setFormData({...formData, employee_id: e.target.value})} />
+          <label style={{ display: 'block', marginBottom: '8px', fontSize: '0.8rem', fontWeight: 'bold' }}>SYSTEM ID</label>
+          <input required type="text" placeholder="EMP-1001" value={formData.employee_id} onChange={e => setFormData({...formData, employee_id: e.target.value})} />
         </div>
         <div>
-          <label style={{ display: 'block', marginBottom: '8px', fontSize: '0.9rem', color: 'var(--text-muted)' }}>Department</label>
+          <label style={{ display: 'block', marginBottom: '8px', fontSize: '0.8rem', fontWeight: 'bold' }}>DEPARTMENT HEAD</label>
           <select value={formData.department} onChange={e => setFormData({...formData, department: e.target.value})}>
             <option>Engineering</option>
             <option>HR</option>
@@ -246,20 +289,20 @@ const AddEmployeeForm = ({ setTab, token, API }) => {
           </select>
         </div>
         <div>
-          <label style={{ display: 'block', marginBottom: '8px', fontSize: '0.9rem', color: 'var(--text-muted)' }}>Joined Date</label>
+          <label style={{ display: 'block', marginBottom: '8px', fontSize: '0.8rem', fontWeight: 'bold' }}>JOINING DATE</label>
           <input required type="date" value={formData.joining_date} onChange={e => setFormData({...formData, joining_date: e.target.value})} />
         </div>
         <div>
-          <label style={{ display: 'block', marginBottom: '8px', fontSize: '0.9rem', color: 'var(--text-muted)' }}>Monthly Salary</label>
+          <label style={{ display: 'block', marginBottom: '8px', fontSize: '0.8rem', fontWeight: 'bold' }}>MONTHLY COMPENSATION ($)</label>
           <input required type="number" value={formData.salary} onChange={e => setFormData({...formData, salary: parseFloat(e.target.value)})} />
         </div>
         <div style={{ gridColumn: 'span 2' }}>
-          <label style={{ display: 'block', marginBottom: '8px', fontSize: '0.9rem', color: 'var(--text-muted)' }}>Email</label>
-          <input required type="email" value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} />
+          <label style={{ display: 'block', marginBottom: '8px', fontSize: '0.8rem', fontWeight: 'bold' }}>OFFICIAL EMAIL</label>
+          <input required type="email" placeholder="john@company.com" value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} />
         </div>
-        <div style={{ gridColumn: 'span 2' }}>
-          <button className="btn-primary" type="submit" disabled={loading}>
-            {loading ? <Loader2 className="animate-spin" /> : 'Register Employee'}
+        <div style={{ gridColumn: 'span 2', marginTop: '10px' }}>
+          <button className="btn-primary" type="submit" disabled={loading} style={{ background: 'black', color: 'white' }}>
+            {loading ? <Loader2 className="animate-spin" /> : 'Authorize Onboarding'}
           </button>
         </div>
       </form>
@@ -268,36 +311,43 @@ const AddEmployeeForm = ({ setTab, token, API }) => {
 };
 
 const PayrollSystem = ({ token, API }) => {
-  const [month, setMonth] = useState('April 2024');
+  const [month, setMonth] = useState('April 2026');
   const [loading, setLoading] = useState(false);
 
   const handleGenerate = async () => {
     setLoading(true);
     try {
-      await axios.post(`${API}/payroll/generate?month=${month}`, {}, { headers: { Authorization: `Bearer ${token}` }});
-      alert(`Payroll generated for ${month}`);
+      const res = await axios.post(`${API}/payroll/generate?month=${month}`, {}, { headers: { Authorization: `Bearer ${token}` }});
+      alert(res.data.message);
     } catch (err) {
-      alert("Error generating payroll");
+      alert("Error generating payroll: " + (err.response?.data?.detail || "Connection failure"));
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="glass-card animate-fade-in" style={{ padding: '40px', textAlign: 'center' }}>
-      <CreditCard size={48} style={{ color: 'var(--accent)', marginBottom: '16px' }} />
-      <h3>Monthly Payroll Generation</h3>
-      <p style={{ color: 'var(--text-muted)', marginBottom: '32px' }}>Generate and distribute payslips for all active employees.</p>
+    <div className="glass-card animate-fade-in" style={{ padding: '60px', textAlign: 'center', maxWidth: '600px', margin: '0 auto' }}>
+      <div style={{ background: 'var(--primary)', width: '80px', height: '80px', borderRadius: '24px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 24px' }}>
+         <CreditCard size={40} color="black" />
+      </div>
+      <h2>Strategic Payroll Engine</h2>
+      <p style={{ color: 'var(--text-muted)', marginBottom: '40px', lineHeight: '1.6' }}>Automatic consolidation and ledger posting for the current fiscal period.</p>
       
-      <div style={{ display: 'flex', justifyContent: 'center', gap: '16px', maxWidth: '400px', margin: '0 auto' }}>
-        <select value={month} onChange={e => setMonth(e.target.value)} style={{ flex: 1 }}>
-          <option>April 2024</option>
-          <option>May 2024</option>
-          <option>June 2024</option>
-        </select>
-        <button className="btn-primary" onClick={handleGenerate} disabled={loading} style={{ flex: 1 }}>
-          {loading ? <Loader2 className="animate-spin" /> : 'Process Payroll'}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', maxWidth: '400px', margin: '0 auto' }}>
+        <div style={{ textAlign: 'left' }}>
+           <label style={{ fontSize: '0.75rem', fontWeight: '800', marginBottom: '8px', display: 'block' }}>TARGET FISCAL PERIOD</label>
+           <select value={month} onChange={e => setMonth(e.target.value)} style={{ width: '100%' }}>
+              <option>April 2026</option>
+              <option>May 2026</option>
+              <option>June 2026</option>
+           </select>
+        </div>
+        <div style={{ height: '1px', background: '#eee', margin: '10px 0' }}></div>
+        <button className="btn-primary" onClick={handleGenerate} disabled={loading} style={{ background: 'black', color: 'white', padding: '18px' }}>
+          {loading ? <Loader2 className="animate-spin" /> : 'Execute Payroll & Post to Ledger'}
         </button>
+        <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>⚡ This will automatically create an expense entry in Financials.</p>
       </div>
     </div>
   );

@@ -7,9 +7,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr, Field
 from typing import List, Optional
 from bson import ObjectId
+from datetime import datetime
 
 from database import get_database
-from models import UserRole
+from models import UserRole, AuditLog
 from auth import (
     get_password_hash, 
     verify_password, 
@@ -18,8 +19,9 @@ from auth import (
     role_required
 )
 from routers import hr, accounts
+from utils import log_event
 
-app = FastAPI(title="ERP Management System API (MongoDB)")
+app = FastAPI(title="ERP Intelligence HQ - Enterprise Edition")
 app.include_router(hr.router)
 app.include_router(accounts.router)
 
@@ -32,34 +34,20 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Helper for MongoDB ObjectId
-class PyObjectId(ObjectId):
-    @classmethod
-    def __get_validators__(cls):
-        yield cls.validate
-
-    @classmethod
-    def validate(cls, v):
-        if not ObjectId.is_valid(v):
-            raise ValueError("Invalid objectid")
-        return ObjectId(v)
-
-    @classmethod
-    def __get_pydantic_json_schema__(cls, field_schema):
-        field_schema.update(type="string")
-
 # Pydantic models for request/response
 class UserCreate(BaseModel):
     email: EmailStr
     password: str
     full_name: str
     role: UserRole
+    permissions: List[str] = []
 
 class UserResponse(BaseModel):
     id: str = Field(alias="_id")
     email: EmailStr
     full_name: str
     role: str
+    permissions: List[str] = []
 
     class Config:
         populate_by_name = True
@@ -69,6 +57,7 @@ class Token(BaseModel):
     access_token: str
     token_type: str
     role: str
+    permissions: List[str] = []
 
 class LoginRequest(BaseModel):
     email: EmailStr
@@ -86,10 +75,21 @@ async def startup_event():
             "email": admin_email,
             "hashed_password": hashed_password,
             "role": UserRole.ADMIN,
-            "full_name": "System Administrator"
+            "full_name": "System Administrator",
+            "permissions": ["all"]
         }
         await db.users.insert_one(admin_user)
         print(f"Created default admin: {admin_email}")
+    
+    # Seed essential accounting heads for payroll integration
+    salary_head = await db.chart_of_accounts.find_one({"code": "EXP-SALARY"})
+    if not salary_head:
+        await db.chart_of_accounts.insert_one({
+            "code": "EXP-SALARY",
+            "account_name": "Employee Salary Expense",
+            "account_type": "Expense",
+            "balance": 0.0
+        })
 
 @app.post("/login", response_model=Token)
 async def login(request: LoginRequest):
@@ -102,11 +102,15 @@ async def login(request: LoginRequest):
             headers={"WWW-Authenticate": "Bearer"},
         )
     
+    # Log login event
+    await log_event("LOGIN", "User", user["email"], str(user["_id"]))
+    
     access_token = create_access_token(data={"sub": user["email"]})
     return {
         "access_token": access_token, 
         "token_type": "bearer",
-        "role": user["role"]
+        "role": user["role"],
+        "permissions": user.get("permissions", [])
     }
 
 @app.post("/create-user", response_model=UserResponse)
@@ -124,11 +128,15 @@ async def create_user(
         "email": data.email,
         "hashed_password": hashed_password,
         "role": data.role,
-        "full_name": data.full_name
+        "full_name": data.full_name,
+        "permissions": data.permissions
     }
     result = await db.users.insert_one(new_user)
+    
+    # Audit trail
+    await log_event("CREATE", "User", admin["email"], str(result.inserted_id), {"role": data.role})
+    
     created_user = await db.users.find_one({"_id": result.inserted_id})
-    # Convert ObjectId to string for Pydantic
     created_user["_id"] = str(created_user["_id"])
     return created_user
 
@@ -156,7 +164,19 @@ async def delete_user(
     result = await db.users.delete_one({"_id": ObjectId(user_id)})
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Identity not found")
+    
+    # Audit trail
+    await log_event("DELETE", "User", admin["email"], user_id)
+    
     return {"message": "Account de-provisioned"}
+
+@app.get("/audit-logs")
+async def get_audit_logs(admin: dict = Depends(role_required([UserRole.ADMIN]))):
+    db = get_database()
+    logs = await db.audit_logs.find().sort("timestamp", -1).limit(100).to_list(100)
+    for log in logs:
+        log["_id"] = str(log["_id"])
+    return logs
 
 @app.get("/me", response_model=UserResponse)
 async def get_me(current_user: dict = Depends(get_current_user)):
