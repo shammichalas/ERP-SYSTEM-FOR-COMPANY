@@ -36,11 +36,13 @@ class TransactionBase(BaseModel):
     date: str
     description: str
     amount: float
-    type: str # Debit, Credit, Sales, Purchase, Payment, Receipt
+    type: str # Debit, Credit, Sales, Purchase, Payment, Receipt, Credit Note, Debit Note
     account_code: str
     party_id: Optional[str] = None # Link to Customer/Vendor
     reference: Optional[str] = None # Invoice #, Bill #
     gst_amount: float = 0.0
+    hsn_code: Optional[str] = None
+    itc_eligible: bool = False
 
 # --- Masters ---
 
@@ -60,6 +62,53 @@ async def get_chart(admin: dict = Depends(role_required([UserRole.ACCOUNTANT, Us
     async for acc in cursor:
         accounts.append(acc)
     return accounts
+
+class BudgetBase(BaseModel):
+    department_name: str
+    amount: float
+    period: str # Month-Year e.g., April-2026
+    category: str # Hiring, Tech, Operations, Marketing
+
+@router.post("/budgets")
+async def create_budget(data: BudgetBase, admin: dict = Depends(role_required([UserRole.ACCOUNTANT, UserRole.ADMIN]))):
+    db = get_database()
+    await db.budgets.insert_one(data.dict())
+    return {"message": "Budget allocation saved"}
+
+@router.get("/budgets")
+async def get_budgets(admin: dict = Depends(role_required([UserRole.ACCOUNTANT, UserRole.ADMIN]))):
+    db = get_database()
+    cursor = db.budgets.find()
+    budgets = []
+    async for b in cursor:
+        b["_id"] = str(b["_id"])
+        budgets.append(b)
+    return budgets
+
+@router.get("/reports/budget-comparison")
+async def budget_vs_actual(admin: dict = Depends(role_required([UserRole.ACCOUNTANT, UserRole.ADMIN]))):
+    db = get_database()
+    # 1. Get all budgets
+    budgets = await db.budgets.find().to_list(100)
+    
+    # 2. Match with actual expenses from transactions
+    # Simplified: We match by 'category' (description keyword for now)
+    results = []
+    for b in budgets:
+        # Sum transactions where description contains category name or matching period
+        cursor = db.account_transactions.find({"description": {"$regex": b["category"], "$options": "i"}})
+        actual = 0
+        async for t in cursor:
+            actual += t["amount"]
+        
+        results.append({
+            "department": b["department_name"],
+            "category": b["category"],
+            "budgeted": b["amount"],
+            "actual": actual,
+            "variance": b["amount"] - actual
+        })
+    return results
 
 @router.post("/masters/parties", response_model=PartyResponse)
 async def create_party(data: PartyBase, admin: dict = Depends(role_required([UserRole.ACCOUNTANT, UserRole.ADMIN]))):
@@ -122,6 +171,26 @@ async def get_transactions(admin: dict = Depends(role_required([UserRole.ACCOUNT
 
 # --- Reports & GST ---
 
+@router.get("/reports/trial-balance")
+async def get_trial_balance(admin: dict = Depends(role_required([UserRole.ACCOUNTANT, UserRole.ADMIN]))):
+    db = get_database()
+    return await db.chart_of_accounts.find().to_list(100)
+
+@router.get("/reports/pnl")
+async def get_pnl(admin: dict = Depends(role_required([UserRole.ACCOUNTANT, UserRole.ADMIN]))):
+    db = get_database()
+    income = await db.chart_of_accounts.find({"account_type": "Income"}).to_list(100)
+    expenses = await db.chart_of_accounts.find({"account_type": "Expense"}).to_list(100)
+    
+    total_income = sum(a["balance"] for a in income)
+    total_expense = sum(a["balance"] for a in expenses)
+    
+    return {
+        "income_heads": income,
+        "expense_heads": expenses,
+        "net_profit": total_income - total_expense
+    }
+
 @router.get("/reports/balance-sheet")
 async def get_balance_sheet(admin: dict = Depends(role_required([UserRole.ACCOUNTANT, UserRole.ADMIN]))):
     db = get_database()
@@ -129,21 +198,35 @@ async def get_balance_sheet(admin: dict = Depends(role_required([UserRole.ACCOUN
     liabilities = await db.chart_of_accounts.find({"account_type": "Liability"}).to_list(100)
     return {"assets": assets, "liabilities": liabilities}
 
-@router.get("/reports/pnl")
-async def get_pnl(admin: dict = Depends(role_required([UserRole.ACCOUNTANT, UserRole.ADMIN]))):
+@router.get("/reports/gst-filings")
+async def get_gst_filings(admin: dict = Depends(role_required([UserRole.ACCOUNTANT, UserRole.ADMIN]))):
     db = get_database()
-    income = await db.chart_of_accounts.find({"account_type": "Income"}).to_list(100)
-    expenses = await db.chart_of_accounts.find({"account_type": "Expense"}).to_list(100)
-    return {"income": income, "expenses": expenses}
+    # GSTR-1: Sales transactions
+    sales = await db.account_transactions.find({"type": "Sales"}).to_list(100)
+    # GSTR-3B summary
+    purchases = await db.account_transactions.find({"type": "Purchase"}).to_list(100)
+    
+    total_output_tax = sum(s.get("gst_amount", 0) for s in sales)
+    total_itc = sum(p.get("gst_amount", 0) for p in purchases if p.get("itc_eligible"))
+    
+    return {
+        "gstr1": sales,
+        "gstr3b_summary": {
+            "output_tax": total_output_tax,
+            "itc_available": total_itc,
+            "net_payable": max(0, total_output_tax - total_itc)
+        }
+    }
 
-@router.get("/reports/gst-summary")
-async def get_gst_summary(admin: dict = Depends(role_required([UserRole.ACCOUNTANT, UserRole.ADMIN]))):
+@router.get("/reports/hsn-summary")
+async def get_hsn_summary(admin: dict = Depends(role_required([UserRole.ACCOUNTANT, UserRole.ADMIN]))):
     db = get_database()
-    cursor = db.account_transactions.find({"gst_amount": {"$gt": 0}})
-    total_gst = 0
-    async for t in cursor:
-        total_gst += t.get("gst_amount", 0)
-    return {"total_collected_gst": total_gst}
+    pipeline = [
+        {"$match": {"hsn_code": {"$ne": None}}},
+        {"$group": {"_id": "$hsn_code", "total_value": {"$sum": "$amount"}, "total_gst": {"$sum": "$gst_amount"}}}
+    ]
+    cursor = db.account_transactions.aggregate(pipeline)
+    return await cursor.to_list(100)
 
 # Integration
 @router.post("/integrate/payroll")
