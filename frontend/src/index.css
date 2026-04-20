@@ -1,0 +1,181 @@
+:root {
+  --primary: #fbc02d;
+  --secondary: #1a1a1a;
+  --bg-main: #f5f6f8;
+  --bg-card: #ffffff;
+  --text-primary: #1a1a1a;
+  --text-muted: #757575;
+  --border-radius: 28px;
+  --sidebar-w: 80px;
+  --sidebar-expanded: 260px;
+  --accent: var(--primary);
+  --accent-soft: rgba(251, 192, 45, 0.1);
+  --shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  font-family: 'Outfit', 'Inter', system-ui, sans-serif;
+}
+
+body {
+  background-color: var(--bg-main);
+  color: var(--text-primary);
+  min-height: 100vh;
+}
+
+/* Typography */
+h1 { font-size: 2.5rem; font-weight: 700; color: var(--text-primary); letter-spacing: -0.03em; }
+h2 { font-size: 1.8rem; font-weight: 600; }
+h3 { font-size: 1.2rem; font-weight: 600; }
+
+/* Dashboard Layout */
+.dashboard-container {
+  display: flex;
+  min-height: 100vh;
+}
+
+.sidebar {
+  width: var(--sidebar-expanded);
+  background: white;
+  padding: 32px 16px;
+  display: flex;
+  flex-direction: column;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  border-right: 1px solid rgba(0,0,0,0.05);
+}
+
+.main-content {
+  flex: 1;
+  padding: 40px 60px;
+  overflow-y: auto;
+}
+
+/* Card Styles - Based on the image */
+.glass-card {
+  background: var(--bg-card);
+  border-radius: var(--border-radius);
+  padding: 32px;
+  box-shadow: var(--shadow);
+  border: none;
+  transition: transform 0.3s ease;
+}
+
+.glass-card:hover {
+  transform: translateY(-2px);
+}
+
+/* Components */
+input, select {
+  width: 100%;
+  padding: 14px 20px;
+  background: #f8f9fa;
+  border: 1px solid #eeeeee;
+  border-radius: 18px;
+  color: var(--text-primary);
+  font-size: 0.95rem;
+  transition: all 0.2s ease;
+}
+
+input:focus, select:focus {
+  outline: none;
+  border-color: var(--primary);
+  background: white;
+  box-shadow: 0 0 0 4px var(--accent-soft);
+}
+
+.btn-primary {
+  padding: 14px 28px;
+  background: var(--secondary);
+  color: white;
+  border: none;
+  border-radius: 20px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+
+.btn-primary:hover {
+  background: #000;
+  transform: scale(1.02);
+}
+
+.active-pill {
+  background: var(--primary) !important;
+  color: var(--text-primary) !important;
+}
+
+/* Table Styling */
+table {
+  width: 100%;
+  border-spacing: 0 12px;
+  border-collapse: separate;
+}
+
+th {
+  padding: 12px 20px;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+td {
+  padding: 20px;
+  background: white;
+  font-size: 0.95rem;
+}
+
+td:first-child { border-radius: 20px 0 0 20px; }
+td:last-child { border-radius: 0 20px 20px 0; }
+
+/* Status Badges */
+.badge {
+  padding: 6px 14px;
+  border-radius: 12px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.badge-success { background: #e8f5e9; color: #2e7d32; }
+.badge-warning { background: #fff8e1; color: #f57f17; }
+.badge-error { background: #ffebee; color: #c62828; }
+
+/* Animations */
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-fade-in {
+  animation: fadeInUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Custom Header Search/Top Bar */
+.top-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 50px;
+}
+
+.search-box {
+  background: white;
+  border-radius: 25px;
+  padding: 10px 20px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  box-shadow: var(--shadow);
+  width: 350px;
+}
