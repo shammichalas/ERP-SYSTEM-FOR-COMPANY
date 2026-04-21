@@ -1,4 +1,5 @@
 from fastapi import FastAPI, Depends, HTTPException, status
+from fastapi.security import OAuth2PasswordRequestForm
 import os
 from dotenv import load_dotenv
 
@@ -104,6 +105,25 @@ async def login(request: LoginRequest):
     
     # Log login event
     await log_event("LOGIN", "User", user["email"], str(user["_id"]))
+    
+    access_token = create_access_token(data={"sub": user["email"]})
+    return {
+        "access_token": access_token, 
+        "token_type": "bearer",
+        "role": user["role"],
+        "permissions": user.get("permissions", [])
+    }
+
+@app.post("/token", response_model=Token)
+async def login_for_swagger(form_data: OAuth2PasswordRequestForm = Depends()):
+    db = get_database()
+    user = await db.users.find_one({"email": form_data.username})
+    if not user or not verify_password(form_data.password, user["hashed_password"]):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect username or password",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     
     access_token = create_access_token(data={"sub": user["email"]})
     return {

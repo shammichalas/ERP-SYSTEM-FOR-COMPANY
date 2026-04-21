@@ -21,9 +21,20 @@ class AuditAction(str, enum.Enum):
     LOGIN = "LOGIN"
     PAYROLL_GEN = "PAYROLL_GEN"
 
+class AccountingType(str, enum.Enum):
+    DEBIT = "Debit"
+    CREDIT = "Credit"
+
+class AccountCategory(str, enum.Enum):
+    ASSET = "Asset"
+    LIABILITY = "Liability"
+    INCOME = "Income"
+    EXPENSE = "Expense"
+    EQUITY = "Equity"
+
 class AuditLog(BaseModel):
     action: str
-    target: str # e.g., "Employee", "Transaction"
+    target: str # e.g. "Employee", "Transaction"
     target_id: Optional[str] = None
     performed_by: str # User ID or Email
     timestamp: str

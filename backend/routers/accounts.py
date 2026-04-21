@@ -14,9 +14,24 @@ router = APIRouter(prefix="/accounts", tags=["Accountant Module"])
 
 class AccountBase(BaseModel):
     account_name: str
-    account_type: str # Asset, Liability, Income, Expense, Bank
+    account_type: str # Asset, Liability, Income, Expense, Bank, Equity
     code: str
     balance: float = 0.0
+
+class BankAccount(BaseModel):
+    account_name: str
+    account_number: str
+    ifsc: str
+    bank_name: str
+    branch: str
+    balance: float = 0.0
+
+class TaxRate(BaseModel):
+    name: str # e.g. GST 18%
+    rate: float # 18
+    cgst: float # 9
+    sgst: float # 9
+    igst: float # 0
 
 class PartyBase(BaseModel):
     name: str
@@ -32,17 +47,24 @@ class PartyResponse(PartyBase):
     class Config:
         populate_by_name = True
 
-class TransactionBase(BaseModel):
+class Entry(BaseModel):
+    account_code: str
+    type: str # Debit or Credit
+    amount: float
+
+class DoubleEntryTransaction(BaseModel):
     date: str
     description: str
-    amount: float
-    type: str # Debit, Credit, Sales, Purchase, Payment, Receipt, Credit Note, Debit Note
-    account_code: str
-    party_id: Optional[str] = None # Link to Customer/Vendor
-    reference: Optional[str] = None # Invoice #, Bill #
-    gst_amount: float = 0.0
+    journal_type: str # Sales, Purchase, Payment, Receipt, Contra, Journal
+    entries: List[Entry]
+    reference: Optional[str] = None
+    # GST mapping
+    tax_rate_id: Optional[str] = None
+    cgst_amount: float = 0.0
+    sgst_amount: float = 0.0
+    igst_amount: float = 0.0
     hsn_code: Optional[str] = None
-    itc_eligible: bool = False
+    party_id: Optional[str] = None
 
 # --- Masters ---
 
@@ -54,14 +76,54 @@ async def create_account(data: AccountBase, admin: dict = Depends(role_required(
     await db.chart_of_accounts.insert_one(data.dict())
     return data
 
+@router.put("/masters/chart/{code}")
+async def update_account(code: str, data: AccountBase, admin: dict = Depends(role_required([UserRole.ADMIN]))):
+    db = get_database()
+    update_data = data.dict()
+    # Don't allow changing balance manually through master edit if you want to keep integrity, 
+    # but for simple correction we allow it here.
+    result = await db.chart_of_accounts.update_one({"code": code}, {"$set": update_data})
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Account not found")
+    return {"message": "Account head updated"}
+
 @router.get("/masters/chart", response_model=List[AccountBase])
 async def get_chart(admin: dict = Depends(role_required([UserRole.ACCOUNTANT, UserRole.ADMIN]))):
     db = get_database()
     cursor = db.chart_of_accounts.find()
     accounts = []
     async for acc in cursor:
+        acc["_id"] = str(acc["_id"])
         accounts.append(acc)
     return accounts
+
+# --- Bank & Tax Masters ---
+
+@router.post("/masters/banks")
+async def add_bank(data: BankAccount, admin: dict = Depends(role_required([UserRole.ADMIN]))):
+    db = get_database()
+    await db.bank_accounts.insert_one(data.dict())
+    return {"message": "Bank account provisioned"}
+
+@router.get("/masters/banks")
+async def get_banks(admin: dict = Depends(role_required([UserRole.ACCOUNTANT, UserRole.ADMIN]))):
+    db = get_database()
+    banks = await db.bank_accounts.find().to_list(100)
+    for b in banks: b["_id"] = str(b["_id"])
+    return banks
+
+@router.post("/masters/taxes")
+async def add_tax_rate(data: TaxRate, admin: dict = Depends(role_required([UserRole.ADMIN]))):
+    db = get_database()
+    await db.tax_masters.insert_one(data.dict())
+    return {"message": "Tax rate configured"}
+
+@router.get("/masters/taxes")
+async def get_taxes(admin: dict = Depends(role_required([UserRole.ACCOUNTANT, UserRole.ADMIN]))):
+    db = get_database()
+    taxes = await db.tax_masters.find().to_list(100)
+    for t in taxes: t["_id"] = str(t["_id"])
+    return taxes
 
 class BudgetBase(BaseModel):
     department_name: str
@@ -99,7 +161,11 @@ async def budget_vs_actual(admin: dict = Depends(role_required([UserRole.ACCOUNT
         cursor = db.account_transactions.find({"description": {"$regex": b["category"], "$options": "i"}})
         actual = 0
         async for t in cursor:
-            actual += t["amount"]
+            if "entries" in t and isinstance(t["entries"], list):
+                # We count standard debits as the expense actuals for budget tracking
+                actual += sum(e.get("amount", 0) for e in t["entries"] if e.get("type") == "Debit")
+            else:
+                actual += t.get("amount", 0)
         
         results.append({
             "department": b["department_name"],
@@ -129,35 +195,42 @@ async def get_parties(party_type: Optional[str] = None, admin: dict = Depends(ro
         parties.append(p)
     return parties
 
-# --- Transactions ---
+# --- Transactions (Double Entry) ---
 
 @router.post("/transactions")
-async def add_transaction(data: TransactionBase, admin: dict = Depends(role_required([UserRole.ACCOUNTANT, UserRole.ADMIN]))):
+async def add_transaction(data: DoubleEntryTransaction, admin: dict = Depends(role_required([UserRole.ACCOUNTANT, UserRole.ADMIN]))):
     db = get_database()
+    
+    # 1. Double-Entry Validation
+    total_debit = sum(e.amount for e in data.entries if e.type == "Debit")
+    total_credit = sum(e.amount for e in data.entries if e.type == "Credit")
+    
+    if abs(total_debit - total_credit) > 0.01:
+        raise HTTPException(status_code=400, detail=f"Entry unbalanced: Debit({total_debit}) != Credit({total_credit})")
+    
     transaction = data.dict()
     transaction["created_at"] = datetime.now().isoformat()
-    await db.account_transactions.insert_one(transaction)
+    result = await db.account_transactions.insert_one(transaction)
     
-    # Simple Ledger Logic
-    # 1. Update Chart of Accounts balance
-    # Credits increase Income/Liability, decrease Asset/Expense
-    # Debits increase Asset/Expense, decrease Income/Liability
-    # For now, we use a simple Credit (+) / Debit (-) approach for generic accounts
-    adjustment = data.amount if data.type in ["Credit", "Sales", "Receipt"] else -data.amount
-    await db.chart_of_accounts.update_one(
-        {"code": data.account_code},
-        {"$inc": {"balance": adjustment}}
-    )
-    
-    # 2. Update Party Outstanding if applicable
-    if data.party_id:
-        party_adj = data.amount if data.type in ["Sales", "Payment"] else -data.amount
-        await db.parties.update_one(
-            {"_id": ObjectId(data.party_id)},
-            {"$inc": {"outstanding": party_adj}}
+    # 2. Sequential Ledger Posting
+    for entry in data.entries:
+        acc = await db.chart_of_accounts.find_one({"code": entry.account_code})
+        if not acc:
+            continue
+            
+        # Logic: Assets/Expenses increase on Debit. Income/Liabilities increase on Credit.
+        if acc["account_type"] in ["Asset", "Expense", "Bank"]:
+            adj = entry.amount if entry.type == "Debit" else -entry.amount
+        else:
+            adj = entry.amount if entry.type == "Credit" else -entry.amount
+            
+        await db.chart_of_accounts.update_one(
+            {"code": entry.account_code},
+            {"$inc": {"balance": adj}}
         )
-        
-    return {"message": "Transaction recorded and ledgers updated"}
+    
+    # Audit logic
+    return {"message": "Transaction recorded via Double-Entry protocol", "id": str(result.inserted_id)}
 
 @router.get("/transactions")
 async def get_transactions(admin: dict = Depends(role_required([UserRole.ACCOUNTANT, UserRole.ADMIN]))):
@@ -169,18 +242,76 @@ async def get_transactions(admin: dict = Depends(role_required([UserRole.ACCOUNT
         txns.append(t)
     return txns
 
+@router.put("/transactions/{id}")
+async def update_transaction(id: str, data: DoubleEntryTransaction, admin: dict = Depends(role_required([UserRole.ADMIN]))):
+    db = get_database()
+    # ... logic already there but I want to make sure the routing is clean
+    
+    # 1. Validation
+    total_debit = sum(e.amount for e in data.entries if e.type == "Debit")
+    total_credit = sum(e.amount for e in data.entries if e.type == "Credit")
+    if abs(total_debit - total_credit) > 0.01:
+        raise HTTPException(status_code=400, detail="Entry unbalanced")
+    
+    # 2. Get Old Transaction to Revert
+    old_txn = await db.account_transactions.find_one({"_id": ObjectId(id)})
+    if not old_txn: raise HTTPException(status_code=404, detail="Transaction not found")
+    
+    # 3. REVERT OLD BALANCES
+    for entry in old_txn.get("entries", []):
+        acc = await db.chart_of_accounts.find_one({"code": entry["account_code"]})
+        if acc:
+            factor = -1 if entry["type"] == "Debit" else 1
+            if acc["account_type"] not in ["Asset", "Expense", "Bank"]: factor *= -1
+            await db.chart_of_accounts.update_one({"code": entry["account_code"]}, {"$inc": {"balance": factor * entry["amount"]}})
+    
+    # 4. APPLY NEW BALANCES
+    for entry in data.entries:
+        acc = await db.chart_of_accounts.find_one({"code": entry.account_code})
+        if acc:
+            factor = 1 if entry.type == "Debit" else -1
+            if acc["account_type"] not in ["Asset", "Expense", "Bank"]: factor *= -1
+            await db.chart_of_accounts.update_one({"code": entry.account_code}, {"$inc": {"balance": factor * entry.amount}})
+            
+    await db.account_transactions.update_one({"_id": ObjectId(id)}, {"$set": data.dict()})
+    return {"message": "Transaction corrected and ledgers updated"}
+
 # --- Reports & GST ---
 
 @router.get("/reports/trial-balance")
 async def get_trial_balance(admin: dict = Depends(role_required([UserRole.ACCOUNTANT, UserRole.ADMIN]))):
     db = get_database()
-    return await db.chart_of_accounts.find().to_list(100)
+    accounts = await db.chart_of_accounts.find().to_list(100)
+    results = []
+    for acc in accounts:
+        # Aggregate logic for real-time validation
+        pipeline = [
+            {"$match": {"entries.account_code": acc["code"]}},
+            {"$unwind": "$entries"},
+            {"$match": {"entries.account_code": acc["code"]}},
+            {"$group": {"_id": "$entries.type", "total": {"$sum": "$entries.amount"}}}
+        ]
+        aggregates = await db.account_transactions.aggregate(pipeline).to_list(5)
+        debit = next((i["total"] for i in aggregates if i["_id"] == "Debit"), 0)
+        credit = next((i["total"] for i in aggregates if i["_id"] == "Credit"), 0)
+        results.append({
+            "code": acc["code"],
+            "name": acc["account_name"],
+            "debit": debit,
+            "credit": credit,
+            "net": acc["balance"]
+        })
+    return results
 
 @router.get("/reports/pnl")
 async def get_pnl(admin: dict = Depends(role_required([UserRole.ACCOUNTANT, UserRole.ADMIN]))):
     db = get_database()
     income = await db.chart_of_accounts.find({"account_type": "Income"}).to_list(100)
     expenses = await db.chart_of_accounts.find({"account_type": "Expense"}).to_list(100)
+    
+    # Sanitize for JSON
+    for i in income: i["_id"] = str(i["_id"])
+    for e in expenses: e["_id"] = str(e["_id"])
     
     total_income = sum(a["balance"] for a in income)
     total_expense = sum(a["balance"] for a in expenses)
@@ -196,25 +327,33 @@ async def get_balance_sheet(admin: dict = Depends(role_required([UserRole.ACCOUN
     db = get_database()
     assets = await db.chart_of_accounts.find({"account_type": "Asset"}).to_list(100)
     liabilities = await db.chart_of_accounts.find({"account_type": "Liability"}).to_list(100)
+    
+    for a in assets: a["_id"] = str(a["_id"])
+    for l in liabilities: l["_id"] = str(l["_id"])
+    
     return {"assets": assets, "liabilities": liabilities}
 
 @router.get("/reports/gst-filings")
 async def get_gst_filings(admin: dict = Depends(role_required([UserRole.ACCOUNTANT, UserRole.ADMIN]))):
     db = get_database()
-    # GSTR-1: Sales transactions
-    sales = await db.account_transactions.find({"type": "Sales"}).to_list(100)
-    # GSTR-3B summary
-    purchases = await db.account_transactions.find({"type": "Purchase"}).to_list(100)
+    # Multi-Point Tax Tracking
+    txns = await db.account_transactions.find({
+        "$or": [{"cgst_amount": {"$gt": 0}}, {"sgst_amount": {"$gt": 0}}, {"igst_amount": {"$gt": 0}}]
+    }).to_list(1000)
     
-    total_output_tax = sum(s.get("gst_amount", 0) for s in sales)
-    total_itc = sum(p.get("gst_amount", 0) for p in purchases if p.get("itc_eligible"))
+    outward = [t for t in txns if t.get("journal_type") == "Sales" or t.get("type") == "Sales"]
+    inward = [t for t in txns if t.get("journal_type") == "Purchase" or t.get("type") == "Purchase"]
     
     return {
-        "gstr1": sales,
-        "gstr3b_summary": {
-            "output_tax": total_output_tax,
-            "itc_available": total_itc,
-            "net_payable": max(0, total_output_tax - total_itc)
+        "gstr1_summary": {
+            "cgst": sum(t.get("cgst_amount", 0) for t in outward),
+            "sgst": sum(t.get("sgst_amount", 0) for t in outward),
+            "igst": sum(t.get("igst_amount", 0) for t in outward)
+        },
+        "itc_summary": {
+            "cgst_claimable": sum(t.get("cgst_amount", 0) for t in inward),
+            "sgst_claimable": sum(t.get("sgst_amount", 0) for t in inward),
+            "igst_claimable": sum(t.get("igst_amount", 0) for t in inward)
         }
     }
 
@@ -222,11 +361,16 @@ async def get_gst_filings(admin: dict = Depends(role_required([UserRole.ACCOUNTA
 async def get_hsn_summary(admin: dict = Depends(role_required([UserRole.ACCOUNTANT, UserRole.ADMIN]))):
     db = get_database()
     pipeline = [
-        {"$match": {"hsn_code": {"$ne": None}}},
-        {"$group": {"_id": "$hsn_code", "total_value": {"$sum": "$amount"}, "total_gst": {"$sum": "$gst_amount"}}}
+        {"$match": {"hsn_code": {"$ne": None, "$ne": ""}}},
+        {"$group": {
+            "_id": "$hsn_code", 
+            "total_count": {"$sum": 1},
+            "cgst": {"$sum": {"$ifNull": ["$cgst_amount", 0]}},
+            "sgst": {"$sum": {"$ifNull": ["$sgst_amount", 0]}},
+            "igst": {"$sum": {"$ifNull": ["$igst_amount", 0]}}
+        }}
     ]
-    cursor = db.account_transactions.aggregate(pipeline)
-    return await cursor.to_list(100)
+    return await db.account_transactions.aggregate(pipeline).to_list(100)
 
 # Integration
 @router.post("/integrate/payroll")
